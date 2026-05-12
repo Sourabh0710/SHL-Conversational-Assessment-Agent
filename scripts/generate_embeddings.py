@@ -1,73 +1,74 @@
+import os
 import json
-import numpy as np
 import faiss
+import numpy as np
 
 from sentence_transformers import SentenceTransformer
+from tqdm import tqdm
 
-# LOAD ENRICHED DATASET
-with open(
-    "data/processed/shl_catalog_enriched.json",
-    "r",
-    encoding="utf-8"
-) as f:
+# LOAD ASSESSMENT DATA
 
+with open("data/processed/shl_catalog.json", "r", encoding="utf-8") as f:
     assessments = json.load(f)
 
 print(f"\nTOTAL ASSESSMENTS: {len(assessments)}")
 
 # LOAD EMBEDDING MODEL
-model = SentenceTransformer(
-    "sentence-transformers/all-MiniLM-L6-v2"
-)
 
-documents = []
+model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
-for assessment in assessments:
+# PREPARE TEXTS
 
+texts = []
+
+for item in assessments:
     text = f"""
-    Assessment Name: {assessment['name']}
-
-    Attributes:
-    {' '.join(assessment['attributes'])}
-
-    Content:
-    {assessment['page_text']}
+    Assessment Name: {item.get('name', '')}
+    Attributes: {' '.join(item.get('attributes', []))}
+    Description: {item.get('description', '')}
+    Job Levels: {' '.join(item.get('job_levels', []))}
+    Languages: {' '.join(item.get('languages', []))}
     """
 
-    documents.append(text)
+    texts.append(text.strip())
 
-print("\nGENERATING EMBEDDINGS...")
+# GENERATE EMBEDDINGS
+
+print("\nGENERATING EMBEDDINGS...\n")
 
 embeddings = model.encode(
-    documents,
-    convert_to_numpy=True,
-    show_progress_bar=True
+    texts,
+    batch_size=32,
+    show_progress_bar=True,
+    convert_to_numpy=True
 )
 
 print("\nEMBEDDINGS GENERATED")
 
 # CREATE FAISS INDEX
 dimension = embeddings.shape[1]
-
 index = faiss.IndexFlatL2(dimension)
-
-index.add(embeddings)
-
+index.add(np.array(embeddings).astype("float32"))
 print("\nFAISS INDEX CREATED")
 
+# CREATE DIRECTORY
+
+os.makedirs("data/embeddings", exist_ok=True)
+
 # SAVE INDEX
+
 faiss.write_index(
     index,
     "data/embeddings/shl_index.faiss"
 )
 
-# SAVE METADATA
+# SAVE DOCUMENTS
+
 with open(
     "data/embeddings/documents.json",
     "w",
     encoding="utf-8"
 ) as f:
-
     json.dump(assessments, f, indent=2)
 
 print("\nINDEX + DOCUMENTS SAVED")
